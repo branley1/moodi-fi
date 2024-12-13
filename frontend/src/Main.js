@@ -1,45 +1,47 @@
-// src/App.js
-import React, { useState, useEffect } from 'react';
+// frontend/src/Main.js
+import React, { useCallback, useState, useEffect } from 'react';
 import axios from 'axios';
-import './App.css';
+import config from './config';
+import './Main.css';
 
-function App() {
-  const [accessToken, setAccessToken] = useState('');
+function Main() {
   const [listeningData, setListeningData] = useState(null);
   const [summary, setSummary] = useState('');
   const [audio, setAudio] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // Extract token from URL on initial load
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const token = params.get('token');
-    if (token) {
-      setAccessToken(token);
-      window.history.replaceState({}, document.title, "/"); // Remove token from URL
-    }
-  }, []);
-
-  const fetchListeningData = async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const response = await axios.post('http://localhost:5000/api/listening-data', { accessToken });
-      setListeningData(response.data);
-    } catch (err) {
-      console.error(err);
-      setError('Failed to fetch listening data.');
-    } finally {
-      setLoading(false);
-    }
-  };
+    // Fetch listening data when the component loads
+    const fetchListeningData = async () => {
+      setLoading(true);
+      setError('');
+      try {
+        const response = await axios.post(
+          `${config.API_BASE_URL}/api/listening-data`,
+          {},
+          { withCredentials: true }
+        );
+        setListeningData(response.data);
+      } catch (err) {
+        console.error(err);
+        setError('Failed to fetch listening data.');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchListeningData();
+    }, []);
 
   const generateSummary = async () => {
     setLoading(true);
     setError('');
     try {
-      const response = await axios.post('http://localhost:5000/api/generate-summary', { listeningData });
+      const response = await axios.post(
+        `${config.API_BASE_URL}/api/gemini-2.0-flash-exp`,
+        { listeningData },
+        { withCredentials: true }
+      );
       setSummary(response.data.summary);
     } catch (err) {
       console.error(err);
@@ -49,63 +51,72 @@ function App() {
     }
   };
 
-  const generateAudio = async () => {
+    // Wrap the function to memoize it
+    const generateAudio = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const response = await axios.post('http://localhost:5000/api/generate-audio', { summary: summary });
-      setAudio(response.data.audio);
+        const response = await axios.post(
+        `${config.API_BASE_URL}/api/gemini-2.0-flash-exp`,
+        { summary },
+        { withCredentials: true }
+        );
+        setAudio(response.data.audio);
     } catch (err) {
-      console.error(err);
-      setError('Failed to generate audio.');
+        console.error(err);
+        setError('Failed to generate audio.');
     } finally {
-      setLoading(false);
+        setLoading(false);
     }
-  };
+    }, [summary]);
+
 
   useEffect(() => {
     if (summary) {
       generateAudio();
     }
-    // eslint-disable-next-line
-  }, [summary]);
+  }, [summary, generateAudio]);
 
   return (
     <div style={styles.container}>
       <h1>Spotify Listening Insights</h1>
-      {!accessToken ? (
-        <a href="http://localhost:5000/auth/spotify" style={styles.button}>Login with Spotify</a>
+      {loading ? (
+        <p>Loading...</p>
+      ) : error ? (
+        <p style={styles.error}>{error}</p>
       ) : (
         <div>
-          <button onClick={fetchListeningData} style={styles.button} disabled={loading}>
-            {loading ? 'Fetching Data...' : 'Get Listening Data'}
-          </button>
-          {listeningData && (
+          {listeningData ? (
             <div style={styles.section}>
               <h2>Your Top Tracks</h2>
               <ul>
-                {listeningData.items.map(track => (
-                  <li key={track.id}>{track.name} by {track.artists.map(artist => artist.name).join(', ')}</li>
+                {listeningData.items.map((track) => (
+                  <li key={track.id}>
+                    {track.name} by {track.artists.map((artist) => artist.name).join(', ')}
+                  </li>
                 ))}
               </ul>
               <button onClick={generateSummary} style={styles.button} disabled={loading}>
-                {loading ? 'Generating Summary...' : 'Generate Summary'}
+                Generate Summary
               </button>
             </div>
+          ) : (
+            <p>No listening data available.</p>
           )}
           {summary && (
             <div style={styles.section}>
               <h2>Summary</h2>
               <p>{summary}</p>
-              {audio && (
+              {audio ? (
                 <div>
                   <h3>Audio Summary</h3>
                   <audio controls src={audio}></audio>
                 </div>
+              ) : (
+                <p>Audio generation is currently unavailable.</p>
               )}
             </div>
           )}
-          {error && <p style={styles.error}>{error}</p>}
         </div>
       )}
     </div>
@@ -118,7 +129,7 @@ const styles = {
     margin: '50px auto',
     padding: '20px',
     textAlign: 'center',
-    fontFamily: 'Arial, sans-serif',
+    fontFamily: 'IBM Plex Mono, monospace',
   },
   button: {
     padding: '10px 20px',
@@ -141,4 +152,4 @@ const styles = {
   },
 };
 
-export default App;
+export default Main;
