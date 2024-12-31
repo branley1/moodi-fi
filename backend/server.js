@@ -12,10 +12,11 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import passport from 'passport';
 import SpotifyStrategyLib from 'passport-spotify';
-import session from 'express-session';
 import cron from 'node-cron';
 import { User } from './models/User.js';
-// import { Summary } from "./models/Summary.js";
+import { BlacklistedToken } from "./models/BlacklistedToken.js";
+import { Summary } from "./models/Summary.js";
+import { createLogger, format, transports } from 'winston';
 import { v4 as uuidv4 } from 'uuid';
 import jwt from 'jsonwebtoken';
 
@@ -23,56 +24,6 @@ const SpotifyStrategy = SpotifyStrategyLib.Strategy;
 
 dotenv.config();
 const app = express();
-
-// Access environment variables
-const PORT = process.env.PORT || 8888;
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
-const JWT_SECRET = process.env.JWT_SECRET;
-
-// Cors configuration
-app.use(cors({
-    origin: FRONTEND_URL,
-    credentials: false, // No cookies used
-}));
-
-// Allow front-end to verify if user is authenticated
-app.use(cookieParser());
-app.use(express.json());
-
-// Middleware to generate nonce
-app.use((req, res, next) => {
-    res.locals.nonce = uuidv4();
-    next();
-  });
-
-// Use Helmet to set secure HTTP headers
-app.use(
-    helmet.contentSecurityPolicy({
-        directives: {
-            defaultSrc: ["'self'"],
-            scriptSrc: ["'self'", (req, res) => `'nonce-${res.locals.nonce}'`],
-            styleSrc: ["'self'", "'unsafe-inline'"],
-            imgSrc: ["'self'", "data:"],
-            connectSrc: ["'self'", `${process.env.API_BASE_URL}`],
-            fontSrc: ["'self'"],
-            objectSrc: ["'none'"],
-        },
-    })
-);
-
-
-app.use(session({
-    secret: process.env.SESSION_SECRET,
-    resave: false,
-    saveUninitialized: false,
-    // In development (HTTP) set secure: false. In production (HTTPS), set secure: true.
-    cookie: { 
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'none', // Required for cross-site cookies
-    }
-}));
-app.use(passport.initialize());
-app.use(passport.session());
 
 // Environment Configuration Validation
 const requiredEnvVars = [
@@ -85,7 +36,6 @@ const requiredEnvVars = [
     'NODE_ENV',
     'JWT_SECRET' 
 ];
-
 requiredEnvVars.forEach(varName => {
     if (!process.env[varName]) {
         console.error(`Missing required environment variable: ${varName}`);
@@ -93,16 +43,66 @@ requiredEnvVars.forEach(varName => {
     }
 });
 
-// Apply rate limiting to all API routes
+// Access environment variables
+const PORT = process.env.PORT || 8888;
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+const JWT_SECRET = process.env.JWT_SECRET;
+
+// Middleware configuration
+app.use(cors({
+    origin: FRONTEND_URL,
+}));
+
+// Allow front-end to verify if user is authenticated
+app.use(cookieParser());
+app.use(express.json());
+
+// Middleware to generate nonce for CSP
+app.use((req, res, next) => {
+    res.locals.nonce = uuidv4();
+    next();
+  });
+
+// Use Helmet to set secure HTTP headers
+app.use(
+    helmet({
+        contentSecurityPolicy: {
+            directives: {
+                defaultSrc: ["'self'"],
+                scriptSrc: ["'self'", (req, res) => `'nonce-${res.locals.nonce}'`],
+                styleSrc: ["'self'", "'unsafe-inline'"],
+                imgSrc: ["'self'", "data:"],
+                connectSrc: ["'self'", `${process.env.API_BASE_URL}`],
+                fontSrc: ["'self'"],
+                objectSrc: ["'none'"],
+            },
+        },
+    })
+);
+
+app.use(passport.initialize());
+
+// Rate limiting for API routes
 const apiLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 100, // limit each IP to 100 requests per windowMs
+    max: 100, // Limit to 100 requests per window
     message: 'Too many requests from this IP, please try again later.'
 });
 app.use('/api/', apiLimiter);
 
+const playlistRateLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000, // 1 hour
+    max: 10,
+    message: "Too many requests from this IP to generate playlist, please try again later."
+})
+app.use("/api/generate-playlist", playlistRateLimiter)
+
 // Connect to MongoDB
-mongoose.connect(process.env.MONGODB_URI)
+mongoose
+    .connect(process.env.MONGODB_URI, { 
+        useNewUrlParser: true,
+        useUnifiedTopology: true,
+    }) // Depreciation fixes
     .then(() => console.log('Connected to MongoDB'))
     .catch((error) => {
         console.error('MongoDB Connection Error:', error);
@@ -122,7 +122,7 @@ const model = genAI.getGenerativeModel({
     },
 });
 
-// Test the model at startup 
+// Test the Gemini model at startup 
 (async () => {
     try {
         const result = await model.generateContent("List ten uncommon fruits.");
@@ -133,7 +133,7 @@ const model = genAI.getGenerativeModel({
     }
 })();
 
-// Passport configurationx
+// Passport Spotify Configuration
 passport.use(new SpotifyStrategy({
     clientID: process.env.SPOTIFY_CLIENT_ID,
     clientSecret: process.env.SPOTIFY_CLIENT_SECRET,
@@ -141,7 +141,6 @@ passport.use(new SpotifyStrategy({
 }, async (accessToken, refreshToken, expires_in, profile, done) => {
     try {
         let user = await User.findOne({ spotifyId: profile.id });
-
         if (!user) {
             user = new User({
                 spotifyId: profile.id,
@@ -157,20 +156,16 @@ passport.use(new SpotifyStrategy({
             user.refreshToken = refreshToken;
             user.tokenExpiration = new Date(Date.now() + expires_in * 1000);
         }
-
         await user.save();
-        return done(null, user);
+        done(null, user);
     } catch (error) {
         console.error('Error during Spotify login:', error);
-        return done(error, null);
+        done(error, null);
     }
 }));
 
-// Session serialization
-passport.serializeUser((user, done) => {
-    done(null, user.spotifyId);
-});
-
+// Serialize and Deserialize User
+passport.serializeUser((user, done) => done(null, user.spotifyId));
 passport.deserializeUser(async (spotifyId, done) => {
     try {
         const user = await User.findOne({ spotifyId });
@@ -180,9 +175,17 @@ passport.deserializeUser(async (spotifyId, done) => {
     }
 });
 
-// Token refresh logic
+// Refresh the Spotify access token for a user if it's expired.
 const refreshSpotifyToken = async (user) => {
+     // Check if the token is valid and not expired
+     if (user.tokenExpiration && user.tokenExpiration > new Date()) {
+        logger.info('Token is still valid, no refresh needed.');
+        return user.accessToken; // Return the existing access token if valid
+    }
+    logger.info('Token expired or invalid. Attempting to refresh.');
+
     try {
+        // Attempt to refresh the token
         const response = await axios.post('https://accounts.spotify.com/api/token', 
             new URLSearchParams({
                 grant_type: 'refresh_token',
@@ -198,15 +201,21 @@ const refreshSpotifyToken = async (user) => {
             }
         );
 
-        if (response.data.access_token) {
+        // Check if the refresh was successful, returns the new access token
+        if (response.data && response.data.access_token) {
             user.accessToken = response.data.access_token;
-            user.tokenExpiration = new Date(Date.now() + (response.data.expires_in || 3600) * 1000);
+            const expiresInSeconds = response.data.expires_in || 3600;
+            user.tokenExpiration = new Date(Date.now() + expiresInSeconds * 1000); // New expiration date
             await user.save();
+            console.log('Token refreshed successfully.');
             return user.accessToken;
         } else {
+            console.error('Token refresh failed: No access token received from Spotify.');
+            // consider not nulling the user tokens here so you can retry later
             throw new Error('No access token received');
         }
     } catch (error) {
+         // Log detailed information about the refresh failure
         console.error('Token Refresh failed:', {
             message: error.message,
             response: error.response ? error.response.data : 'No response',
@@ -214,16 +223,17 @@ const refreshSpotifyToken = async (user) => {
         });
 
         if (user) {
+            // Consider not nulling out the user tokens here if you need to retry later.
+            // This would help with race conditions if the function is called multiple times at the same time
             user.accessToken = null;
             user.tokenExpiration = null;
             await user.save();
         }
-
         throw new Error('Failed to refresh token');
     }
 };
 
-// Middleware to ensure valid Spotify token
+// Ensure valid Spotify token
 const ensureValidSpotifyToken = async (req, res, next) => {
     try {
         const authHeader = req.headers.authorization;
@@ -246,23 +256,15 @@ const ensureValidSpotifyToken = async (req, res, next) => {
             return res.status(401).json({ error: 'User not found' });
         }
 
-        if (!user.tokenExpiration || user.tokenExpiration < new Date(Date.now() + 5 * 60 * 1000)) {
-            await refreshSpotifyToken(user);
-        }
-
         req.user = user;
         next();
-        if (req.user) {
-            console.log('Req.USER!')
-        }
-    } catch (error) {
+    }   catch (error) {
         console.error('Authentication failed:', error);
         res.status(401).json({ error: 'Authentication failed' });
     }
 };
 
 // Routes
-
 // Base route
 app.get('/', (req, res) => {
     res.send('Server is running.');
@@ -281,6 +283,7 @@ app.get('/auth/spotify', passport.authenticate('spotify', {
       // Generate JWT
       const payload = {
           userId: req.user._id,
+          jti: uuidv4() // Random ID
       };
       const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '24h' });
 
@@ -289,54 +292,60 @@ app.get('/auth/spotify', passport.authenticate('spotify', {
   }
 );
 
-/* Check if user is authenticated
-app.get('/api/check-auth', async (req, res) => {
-    try {
-        const accessToken = req.cookies.spotify_access_token;
-        if (!accessToken) {
-            return res.json({ authenticated: false });
-        }
-
-        await axios.get('https://api.spotify.com/v1/me', {
-            headers: { 'Authorization': `Bearer ${accessToken}` }
-        });
-
-        res.json({ authenticated: true, accessToken });
-    } catch (error) {
-        console.error('Auth check error:', error.response ? error.response.data : error.message);
-        res.json({ authenticated: false });
-    }
-}); */
-
 // Fetch user listening data
 app.post('/api/listening-data', ensureValidSpotifyToken, async (req, res) => {
     try {
+        // Access user data from req.user
+        if (!req.user || !req.user.accessToken) {
+            return res.status(401).json({ error: 'User not authenticated or access token missing' });
+        }
+        const accessToken = req.user.accessToken;
+
         const response = await axios.get('https://api.spotify.com/v1/me/top/tracks', {
-            headers: { 'Authorization': `Bearer ${req.user.accessToken}` },
+            headers: { 'Authorization': `Bearer ${accessToken}` },
             params: { limit: 20, time_range: 'medium_term' }
         });
         res.json(response.data);
     } catch (error) {
         console.error('Error fetching listening data:', error.response ? error.response.data : error.message);
+        if (error.response && error.response.status === 401) {
+            return res.status(401).json({ error: 'Spotify token expired' }); // Handle token expiration
+        }
         res.status(500).json({ error: 'Failed to fetch listening data' });
     }
 });
 
 // Generate Summary
-app.post('/api/gemini-2.0-flash-exp', async (req, res) => {
+app.post('/api/gemini-2.0-flash-exp', ensureValidSpotifyToken, async (req, res) => {
     const { listeningData } = req.body;
+    const userId = req.user._id;
 
     if (!listeningData) {
         return res.status(400).json({ error: 'No listening data provided' });
     }
 
     try {
-        const prompt = `Provide an interesting summary of the following listening data: ${JSON.stringify(listeningData)}`;
+        // Check an existing summary for this user
+        const existingSummary = await Summary.findOne({ userId });
+        if (existingSummary) {
+            logger.info(`Returning existing summary for user ${userId}`);
+            return res.json({ summary: existingSummary.summaryText });
+        }
+
+        const prompt = `Analyze the user's Spotify listening data and create a short, engaging summary. Focus on their top artists, genres, and tracks, and include fun, bite-sized insights. Identify trends or moods in their preferences, and suggest their next favorite genre or artist: ${JSON.stringify(listeningData)}`;
         const result = await model.generateContent(prompt);
-        const summary = result.response.text();
-        res.json({ summary });
+        const summaryText = result.response.text();
+
+        // Create and save new summary in the database
+        const newSummary = new Summary({
+            userId,
+            summaryText
+        });
+        await newSummary.save();
+        logger.info(`Generated and saved new summary for user ${userId}`);
+        res.json({ summary: summaryText });
     } catch (error) {
-        console.error('Summary Generation Error:', error.message);
+        logger.error('Summary Generation Error:', error.message);
         res.status(500).json({ error: 'Failed to generate summary', details: error.message });
     }
 });
@@ -393,9 +402,25 @@ app.post('/api/generate-playlist', ensureValidSpotifyToken, async (req, res) => 
 });
 
 // Logout
-app.post('/api/logout', (req, res) => {
-    res.json({ message: 'Logged out successfully.' });
-});
+app.post('/api/logout', async (req, res) => {
+    try {
+      const authHeader = req.headers.authorization;
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+          return res.status(400).json({ error: 'No authorization token provided' });
+      }
+      const token = authHeader.split(' ')[1];
+      const decoded = jwt.verify(token, JWT_SECRET);
+  
+      // Blacklist the token
+      const blacklistedToken = new BlacklistedToken({ jti: decoded.jti });
+      await blacklistedToken.save();
+  
+      res.json({ message: 'Logged out successfully.' });
+  } catch (error) {
+      console.error('Logout failed:', error);
+      res.status(500).json({ error: 'Failed to log out' });
+  }
+  });
 
 // Clean up expired tokens daily
 cron.schedule('0 0 * * *', async () => {
@@ -422,3 +447,18 @@ app.get('*', (req, res) => {
 
 // Start Server
 app.listen(PORT, () => console.log(`Backend running on port ${PORT}`));
+
+// Logger
+const logger = createLogger({
+    level: 'info',
+    format: format.combine(
+        format.timestamp(),
+        format.json()
+    ),
+    transports: [
+        new transports.File({ filename: 'app.log' }), // Log to a file
+        new transports.Console(), // Log to console
+    ]
+});
+
+logger.info('Server is starting.');

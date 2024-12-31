@@ -1,15 +1,10 @@
 import mongoose from 'mongoose';
 
-// User Schema
-const UserSchema = new mongoose.Schema({
-    spotifyId: { type: String, required: true, unique: true },
-    accessToken: { type: String, required: true },
-    refreshToken: { type: String, required: true },
-    tokenExpiration: { type: Date },
-    profile: { type: Object },
-    email: { type: String },
-    displayName: { type: String }
-})
+// Summary Schema
+const summarySchema = new mongoose.Schema({
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    summaryText: { type: String, required: true },
+    createdAt: { type: Date, default: Date.now }
+});
 
-export const Summary = mongoose.model('Summary', UserSchema);
-
+export const Summary = mongoose.model('Summary', summarySchema);
