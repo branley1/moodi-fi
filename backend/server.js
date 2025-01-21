@@ -99,10 +99,7 @@ app.use("/api/generate-playlist", playlistRateLimiter)
 
 // Connect to MongoDB
 mongoose
-    .connect(process.env.MONGODB_URI, { 
-        useNewUrlParser: true,
-        useUnifiedTopology: true,
-    }) // Depreciation fixes
+    .connect(process.env.MONGODB_URI)
     .then(() => console.log('Connected to MongoDB'))
     .catch((error) => {
         console.error('MongoDB Connection Error:', error);
