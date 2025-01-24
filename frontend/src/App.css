@@ -1,36 +1,109 @@
 /* App.css */
-body {
-  margin: 0;
-  font-family: 'IBM Plex Mono', monospace;
-  background-color: #f9f9f9;
+.container {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 20px;
+  text-align: center;
+}
+
+.app-card {
+  background-color: #fff;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  padding: 40px;  
+  margin-bottom: 30px;   
+  text-align: center;
+}
+
+@media (max-width: 768px) {
+  .app-card {
+      padding: 30px;
+      margin: 20px;
+  }
+}
+
+h1 {
+  font-size: 2.5em;
+  margin-bottom: 10px;
   color: #333;
 }
 
-.container {
-  max-width: 800px;
-  margin: 50px auto;
-  padding: 20px;
-  text-align: center;
-  background-color: #fff;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  border-radius: 8px;
+.tagline {
+  font-size: 1.1em;
+  color: #777;
+  margin-bottom: 30px;
 }
 
-button {
-  padding: 10px 20px;
-  font-size: 16px;
+.login-button {
+  background-color: #1DB954; 
+  color: #fff;
+  font-weight: 700;
+  transform: scale(1.02);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+  padding: 12px 24px;
+  font-size: 16px; 
   margin: 10px;
-  border-radius: 5px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background-color 0.2s ease, transform 0.1s ease;
+  display: inline-block;
+  font-family: 'IBM Plex Mono', monospace;
+}
+
+
+.button {
+  padding: 12px 24px;
+  font-size: 16px; 
+  margin: 10px;
+  border-radius: 8px;
   border: none;
   background-color: #1DB954;
   color: #fff;
   cursor: pointer;
-  transition: background-color 0.3s ease;
+  text-decoration: none;
+  transition: background-color 0.2s ease, transform 0.1s ease;
+  display: inline-block;
+  font-family: 'IBM Plex Mono', monospace;
 }
 
-button:hover {
+.button:hover {
   background-color: #148f3d;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
 }
+
+.button:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.primary-button {
+  background-color: #1DB954; 
+  color: #fff;
+  font-weight: 700;
+  transform: scale(1.02);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.primary-button:hover {
+  background-color: #14A34A;
+}
+
+.logout-button {
+  background-color: #f0f0f0;
+  color: #555;
+  border: 1px solid #ccc;
+  align-self: center;
+  margin: 0 auto;
+}
+
+.logout-button:hover {
+  background-color: #e0e0e0;
+  border-color: #bbb;
+}
+
 
 .section {
   margin-top: 30px;
@@ -49,12 +122,36 @@ button:hover {
   margin-top: 20px;
 }
 
-  .errorContainer {
+.errorContainer {
   margin-top: 20px;
-  text-align: center; /* Center text in container */
+  text-align: center;
 }
 
 .error {
   color: red;
+  margin-top: 20px;
+  font-size: 12px;
+}
+
+.button-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 20px;
+  max-width: 600px;
+  margin: 0 auto;
+  margin-bottom: 30px;
+}
+
+@media (max-width: 768px) {
+  .button-grid {
+      grid-template-columns: 1fr;
+  }
+}
+
+footer {
   text-align: center;
+  padding: 20px 0;
+  color: #777;
+  font-size: 0.9em;
+  margin-top: 40px;
 }

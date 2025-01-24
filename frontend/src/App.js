@@ -5,7 +5,7 @@ import './App.css';
 
 // Component to display individual track iframes
 const TrackList = ({ tracks }) => (
-    <div style={styles.topTracks}>
+    <div className='topTracks'>
         {tracks.map((track) => (
             <iframe
                 key={track.id}
@@ -34,8 +34,8 @@ const PlaylistDisplay = ({ playlistId }) => (
 );
 
 const ErrorDisplay = ({ error }) => (
-    <div style={styles.errorContainer}>
-        <p style={styles.error}>{error}</p>
+    <div className='errorContainer'>
+        <p className='error'>{error}</p>
     </div>
 );
 
@@ -61,41 +61,60 @@ function App() {
 
     // Check and set the token from URL or local storage
     const checkAndSetToken = useCallback(() => {
-      // Chech for code in URL params and return to avoid conflicts with the JWT
-      const params = new URLSearchParams(window.location.search);
-      const code = params.get('code');
-      if (code) {
-          console.log("Code found, waiting for JWT", code);
-          return false;
-      }
+        const params = new URLSearchParams(window.location.search);
+        const code = params.get('code');
+        if (code) {
+            console.log("Code found in URL:", code);
+            const exchangeCodeForToken = async (authCode) => {
+                setLoading(true);
+                setError('');
+                try {
+                    console.log("Exchanging code for token with backend...");
+                    const response = await axios.post(`${config.API_BASE_URL}/api/spotify-callback`, { code: authCode });
+                    const jwtToken = response.data.token; // Backend returns JWT
+                    console.log("JWT Token received from backend:", jwtToken);
+                    localStorage.setItem('jwtToken', jwtToken);
+                    setAuthToken(jwtToken);
+                    setIsAuthenticated(true);
+                    window.history.replaceState(null, null, '/');
+                } catch (error) {
+                    console.error("Error exchanging code for token:", error);
+                    setError('Failed to authenticate with Spotify.');
+                } finally {
+                    setLoading(false);
+                }
+            };
+            exchangeCodeForToken(code);
+            return false;
+        }
 
-      // Check local storage for a token
-      try {
-          const storedToken = localStorage.getItem('jwtToken');
-          if (storedToken) {
-              setAuthToken(storedToken)
-              console.log('JWT Token Extracted from local storage', storedToken);
-              return true;
-          }
-      } catch (error) {
-          console.error("Error accessing local storage: ", error)
-      }
+        // Check local storage for a token
+        try {
+            const storedToken = localStorage.getItem('jwtToken');
+            if (storedToken) {
+                setAuthToken(storedToken)
+                console.log('JWT Token Extracted from local storage', storedToken);
+                return true;
+            }
+        } catch (error) {
+            console.error("Error accessing local storage: ", error)
+        }
 
-      if (window.location.hash) {
-          const url = new URL(window.location.href)
-          const token = url.hash.substring(1).split("token")[1];
-          if (token) {
-              console.log("JWT Token Extracted from URL", token);
-              setAuthToken(token);
-              window.history.replaceState(null, null, ' ');
-              localStorage.setItem('jwtToken', token);
-              return true
-          } else {
-              console.error("No token found in URL hash");
-          }
-      }
-      return false
-    }, [setAuthToken])
+        if (window.location.hash) {
+            const url = new URL(window.location.href)
+            const token = url.hash.substring(1).split("token")[1];
+            if (token) {
+                console.log("JWT Token Extracted from URL", token);
+                setAuthToken(token);
+                window.history.replaceState(null, null, ' ');
+                localStorage.setItem('jwtToken', token);
+                return true
+            } else {
+                console.error("No token found in URL hash");
+            }
+        }
+        return false
+        }, [setAuthToken])
 
     const handleAuthCheck = useCallback(() => {
         const isAuthenticated = checkAndSetToken()
@@ -224,13 +243,14 @@ function App() {
     const logout = async () => {
         try {
             console.log('Logging out');
+            delete axios.defaults.headers.common['Authorization'];
+            console.log("Authorization token removed from defaults before logout request");
             await axios.post(`${config.API_BASE_URL}/api/logout`);
             setIsAuthenticated(false);
             setTopTracks([]);
             setSummary('');
             setAudio(null);
             setPlaylist(null);
-            setAuthToken('');
             localStorage.removeItem('jwtToken');
         } catch (error) {
             console.error('Logout failed:', error);
@@ -242,110 +262,73 @@ function App() {
         }
     };
 
-        // Conditional rendering logic based on user authentication
-        return (
-          <div style={styles.container}>
-              <h1>Moodi-Fi</h1>
-              {!isAuthenticated ? (
-                  <div>
-                    <a href={`${config.API_BASE_URL}/auth/spotify`} style={styles.button}>Login with Spotify</a>
-                  </div>
-              ) : (
-                  <div>
-                      {console.log("logged in render")}
-                    <button onClick={fetchTopTracks} style={styles.button} disabled={loading}>
-                          {loading ? 'Fetching Data...' : 'Fetch Top Tracks'}
-                      </button>
-  
-                      {topTracks.length > 0 && (
-                          <div style={styles.section}>
-                              <h2>Your Top Tracks</h2>
-                              <TrackList tracks={topTracks} />
-                          </div>
-                      )}
-  
-                      <div style={styles.actions}>
-                          <button onClick={generateSummary} style={styles.button} disabled={loading || topTracks.length === 0}>
-                              {loading && !summary ? 'Generating Summary...' : 'Generate Summary'}
-                          </button>
-                          <button onClick={generateAudio} style={styles.button} disabled={loading || !summary}>
-                              {loading && !audio ? 'Generating Audio...' : 'Generate Audio'}
-                          </button>
-                          <button onClick={createPlaylist} style={styles.button} disabled={loading || topTracks.length === 0}>
-                              {loading && !playlist ? 'Creating Playlist...' : 'Create Playlist'}
-                          </button>
-                      </div>
-  
-                      {summary && (
-                          <div style={styles.section}>
-                              <h2>Summary</h2>
-                              <p>{summary}</p>
-                          </div>
-                      )}
-  
-                      {audio && (
-                          <div style={styles.section}>
-                              <h2>Audio Summary</h2>
-                              <audio controls src={audio}></audio>
-                          </div>
-                      )}
-  
-                      {playlist && (
-                          <div style={styles.section}>
-                              <h2>Generated Playlist</h2>
-                              <PlaylistDisplay playlistId={playlist.id} />
-                          </div>
-                      )}
-  
-                      {error && <ErrorDisplay error={error} />}
-                      <button onClick={logout} style={styles.button} disabled={loading}>Logout</button>
-                  </div>
-              )}
-          </div>
-      );
-  }
+    // Conditional rendering logic based on user authentication
+    return (
+        <div className='container'>
+            <div>
+                <h1>Moodi-Fi</h1>
+                <p className='tagline'>Your personalized Spotify Music Insights</p>
+                {!isAuthenticated ? (
+                    <div>
+                        <a href={`${config.API_BASE_URL}/auth/spotify`} className='login-button'>Login with Spotify</a>
+                    </div>
+                ) : (
+                    <div>
+                        <div className='button-grid'>
+                        <button onClick={fetchTopTracks} className='button primary-button' disabled={loading}>
+                        {loading ? 'Fetching Data...' : 'Fetch Top Tracks'}
+                        </button>
 
-const styles = {
-    container: {
-        maxWidth: '800px',
-        margin: '50px auto',
-        padding: '20px',
-        textAlign: 'center',
-        fontFamily: 'IBM Plex Mono, monospace',
-    },
-    button: {
-        padding: '10px 20px',
-        fontSize: '16px',
-        margin: '10px',
-        borderRadius: '5px',
-        border: 'none',
-        backgroundColor: '#1DB954',
-        color: '#fff',
-        cursor: 'pointer',
-        textDecoration: 'none',
-    },
-    section: {
-        marginTop: '30px',
-        textAlign: 'center',
-    },
-    topTracks: {
-        display: 'flex',
-        flexWrap: 'wrap',
-        gap: '10px',
-        justifyContent: 'center',
-        marginTop: '20px',
-    },
-    actions: {
-        marginTop: '20px',
-    },
-    errorContainer: {
-        marginTop: '20px',
-        textAlign: 'center',
-    },
-    error: {
-        color: 'red',
-        marginTop: '20px',
-    },
+                        <button onClick={generateSummary} className='button' disabled={loading || topTracks.length === 0}>
+                            {loading && !summary ? 'Generating Summary...' : 'Generate Summary'}
+                        </button>
+                        <button onClick={generateAudio} className='button' disabled={loading || !summary}>
+                            {loading && !audio ? 'Generating Audio...' : 'Generate Audio'}
+                        </button>
+                        <button onClick={createPlaylist} className='button' disabled={loading || topTracks.length === 0}>
+                            {loading && !playlist ? 'Creating Playlist...' : 'Create Playlist'}
+                        </button>
+                    </div>
+
+                    {topTracks.length > 0 && (
+                        <div className='section'>
+                            <h2>Your Top Tracks</h2>
+                            <TrackList tracks={topTracks} />
+                        </div>
+                        )
+                    }
+
+                    {summary && (
+                        <div className='section'>
+                            <h2>Summary</h2>
+                            <p>{summary}</p>
+                        </div>
+                    )}
+
+                    {audio && (
+                        <div className='section'>
+                            <h2>Audio Summary</h2>
+                            <audio controls src={audio}></audio>
+                        </div>
+                    )}
+
+                    {playlist && (
+                        <div className='section'>
+                            <h2>Generated Playlist</h2>
+                            <PlaylistDisplay playlistId={playlist.id} />
+                        </div>
+                    )}
+
+                    {error && <ErrorDisplay error={error} />}
+                    <button onClick={logout} className='button logout-button' disabled={loading}>Logout</button>
+                </div>
+            )}
+        </div>
+        <footer>
+            <p>© {new Date().getFullYear()} Moodi-Fi. All rights reserved.</p>
+        </footer>
+    </div>
+    );
 };
 
 export default App;

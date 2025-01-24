@@ -9,21 +9,20 @@ import { createBrowserRouter, RouterProvider } from 'react-router-dom';
 const router = createBrowserRouter([
     {
         path: "/*", // Catch-all path
-        element: <AppWrapper />, // Use AppWrapper to render the App component
+        element: <App />, // Use AppWrapper to render the App component
     },
 ]);
 
-// AppWrapper component to encapsulate the App component
+/* AppWrapper component to encapsulate the App component
 function AppWrapper() {
     return (
         <App />
     )
-}
+}*/
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
     <React.StrictMode>
-        {/* Provide the router */}
         <RouterProvider router={router} />
     </React.StrictMode>
 );

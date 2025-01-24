@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "express-session": "^1.18.1",
     "react-router-dom": "^7.1.1",
     "uuid": "^11.0.3",
     "winston": "^3.17.0"

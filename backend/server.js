@@ -11,6 +11,7 @@ import axios from 'axios';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import passport from 'passport';
+import session from 'express-session';
 import SpotifyStrategyLib from 'passport-spotify';
 import cron from 'node-cron';
 import { User } from './models/User.js';
@@ -25,6 +26,9 @@ const SpotifyStrategy = SpotifyStrategyLib.Strategy;
 dotenv.config();
 const app = express();
 
+console.log("--- server.js START ----");
+console.log("API_BASE_URL (immediately after dotenv.config()):", process.env.API_BASE_URL);
+
 // Environment Configuration Validation
 const requiredEnvVars = [
     'SPOTIFY_CLIENT_ID', 
@@ -34,7 +38,8 @@ const requiredEnvVars = [
     'MONGODB_URI',
     'SESSION_SECRET',
     'NODE_ENV',
-    'JWT_SECRET' 
+    'JWT_SECRET',
+    'API_BASE_URL'
 ];
 requiredEnvVars.forEach(varName => {
     if (!process.env[varName]) {
@@ -48,10 +53,13 @@ const PORT = process.env.PORT || 8888;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 const JWT_SECRET = process.env.JWT_SECRET;
 
-// Middleware configuration
-app.use(cors({
-    origin: FRONTEND_URL,
-}));
+const corsOptions = {
+    origin: 'http://localhost:3000',
+    methods: 'POST,GET,OPTIONS,PUT,DELETE',
+    credentials: true,
+    allowedHeaders: 'Content-Type,Authorization',
+};
+app.use(cors(corsOptions));
 
 // Allow front-end to verify if user is authenticated
 app.use(cookieParser());
@@ -63,24 +71,41 @@ app.use((req, res, next) => {
     next();
   });
 
+  console.log("API_BASE_URL (outside helmet middleware):", process.env.API_BASE_URL);
+
 // Use Helmet to set secure HTTP headers
-app.use(
+app.use((req, res, next) => {
+    const nonce = uuidv4(); // Generate nonce per request
+    res.locals.nonce = nonce;
+    console.log("API_BASE_URL (inside helmet middleware):", process.env.API_BASE_URL);
     helmet({
         contentSecurityPolicy: {
             directives: {
                 defaultSrc: ["'self'"],
                 scriptSrc: ["'self'", (req, res) => `'nonce-${res.locals.nonce}'`],
-                styleSrc: ["'self'", "'unsafe-inline'"],
+                styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
                 imgSrc: ["'self'", "data:"],
-                connectSrc: ["'self'", `${process.env.API_BASE_URL}`],
-                fontSrc: ["'self'"],
+                connectSrc: ["'self'", process.env.API_BASE_URL, 'http://localhost:3000'],
+                fontSrc: ["'self'", 'https://fonts.gstatic.com'],
                 objectSrc: ["'none'"],
+                workerSrc: ["'self'", 'blob:'],
             },
         },
-    })
-);
+    }) (req, res, next); // Call helmet middleware as a function for each request
+});
+
+app.use(session({
+    secret: process.env.SESSION_SECRET,
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+        httpOnly: true, 
+        secure: process.env.NODE_ENV === 'production'
+    }
+}));
 
 app.use(passport.initialize());
+app.use(passport.session());
 
 // Rate limiting for API routes
 const apiLimiter = rateLimit({
@@ -122,7 +147,7 @@ const model = genAI.getGenerativeModel({
 // Test the Gemini model at startup 
 (async () => {
     try {
-        const result = await model.generateContent("List ten uncommon fruits.");
+        const result = await model.generateContent("What is RAG in one line?");
         console.log(result.response.text());
     } catch (error) {
         console.error("Error testing GenAI model:", error);
@@ -136,6 +161,7 @@ passport.use(new SpotifyStrategy({
     clientSecret: process.env.SPOTIFY_CLIENT_SECRET,
     callbackURL: process.env.SPOTIFY_CALLBACK_URL
 }, async (accessToken, refreshToken, expires_in, profile, done) => {
+    console.log("SpotifyStrategy verify callback started");
     try {
         let user = await User.findOne({ spotifyId: profile.id });
         if (!user) {
@@ -154,10 +180,15 @@ passport.use(new SpotifyStrategy({
             user.tokenExpiration = new Date(Date.now() + expires_in * 1000);
         }
         await user.save();
+        console.log("Spotify login successful, user:", user.spotifyId);
         done(null, user);
     } catch (error) {
         console.error('Error during Spotify login:', error);
+        console.error('Error details:', error.message, error.response ? error.response.data : 'No response data');
         done(error, null);
+        return; // Return early to prevent further execution
+    } finally {
+        console.log("SpotifyStrategy verify callback finished");
     }
 }));
 
@@ -272,22 +303,27 @@ app.get('/auth/spotify', passport.authenticate('spotify', {
     scope: ['user-read-recently-played', 'playlist-modify-public', 'playlist-modify-private'], 
     showDialog: true 
   }));
-  
 
-  app.get('/auth/spotify/callback', 
-  passport.authenticate('spotify', { failureRedirect: '/login' }),
-  function(req, res) {
-      // Generate JWT
-      const payload = {
-          userId: req.user._id,
-          jti: uuidv4() // Random ID
-      };
-      const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '24h' });
+app.post('/api/spotify-callback',
+    passport.authenticate('spotify', { failureRedirect: '/login' }),
+    async function(req, res) {
+        // Generate JWT
+        const payload = {
+            userId: req.user._id,
+            jti: uuidv4() // Random ID
+        };
+        const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '24h' });
 
-      // Redirect to frontend with JWT in URL fragment
-      res.redirect(`${FRONTEND_URL}/#token=${token}`);
-  }
+        console.log("JWT Token generated for user:", req.user.spotifyId);
+        // Redirect to frontend with JWT in URL fragment
+        res.redirect(`${FRONTEND_URL}/#token=${token}`);
+    }
 );
+
+/*app.post('/api/spotify-callback', (req, res) => {
+    console.log("Hit /api/spotify-callback POST route!");
+    res.send('Spotify callback route hit!');
+});*/
 
 // Fetch user listening data
 app.post('/api/listening-data', ensureValidSpotifyToken, async (req, res) => {
@@ -400,24 +436,35 @@ app.post('/api/generate-playlist', ensureValidSpotifyToken, async (req, res) => 
 
 // Logout
 app.post('/api/logout', async (req, res) => {
+    console.log("--- /api/logout route hit ---");
     try {
-      const authHeader = req.headers.authorization;
-      if (!authHeader || !authHeader.startsWith('Bearer ')) {
-          return res.status(400).json({ error: 'No authorization token provided' });
-      }
-      const token = authHeader.split(' ')[1];
-      const decoded = jwt.verify(token, JWT_SECRET);
-  
-      // Blacklist the token
-      const blacklistedToken = new BlacklistedToken({ jti: decoded.jti });
-      await blacklistedToken.save();
-  
-      res.json({ message: 'Logged out successfully.' });
-  } catch (error) {
-      console.error('Logout failed:', error);
-      res.status(500).json({ error: 'Failed to log out' });
-  }
-  });
+        const authHeader = req.headers.authorization;
+        console.log("Authorization header:", authHeader);
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            console.log("No or invalid authorization header.");
+            return res.status(400).json({ error: 'No authorization token provided' });
+        }
+        const token = authHeader.split(' ')[1];
+        console.log("Extracted token:", token);
+
+        const decoded = jwt.verify(token, JWT_SECRET);
+        console.log("JWT decoded successfully:", decoded);
+
+        // Blacklist the token
+        const blacklistedToken = new BlacklistedToken({ jti: decoded.jti });
+        await blacklistedToken.save();
+        console.log("Token blacklisted successfully.");
+
+        res.json({ message: 'Logged out successfully.' });
+        console.log("Logout successful response sent.");
+    } catch (error) {
+        console.error('Logout failed:', error);
+        res.status(500).json({ error: 'Failed to log out' });
+        console.log("Logout error response sent.");
+    } finally {
+        console.log("--- /api/logout route finished ---");
+    }
+});
 
 // Clean up expired tokens daily
 cron.schedule('0 0 * * *', async () => {
