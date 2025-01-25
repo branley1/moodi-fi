@@ -1,10 +1,9 @@
 # Moodi-Fi 🎧
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) <!-- Replace with your actual license badge if applicable -->
-
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 ## Overview
 
-Moodi-Fi is a web application that provides personalized insights into your Spotify listening habits. It leverages the Spotify Web API to fetch your top tracks and listening data, and utilizes the power of AI (via Google's Gemini models) to generate insightful summaries and even create personalized Spotify playlists based on your musical taste.
+Moodi-Fi is a web application that provides personalized insights into your Spotify listening habits. It leverages the Spotify Web API to fetch your top tracks and listening data, and utilizes the power of AI (via Google's Gemini models) to generate insightful summaries and even create personalized Spotify playlists based on your musical taste or user mood inputs.
 
 **Key Features:**
 
