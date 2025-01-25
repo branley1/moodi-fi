@@ -3,7 +3,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import path from 'path';
 import { fileURLToPath } from "url";
 import cookieParser from 'cookie-parser';
-import helmet from 'helmet';
+import express_csp_header, { expressCspHeader } from 'express-csp-header';
 import rateLimit from 'express-rate-limit';
 import express from 'express';
 import mongoose from 'mongoose';
@@ -71,27 +71,24 @@ app.use((req, res, next) => {
     next();
   });
 
-  console.log("API_BASE_URL (outside helmet middleware):", process.env.API_BASE_URL);
+console.log("API_BASE_URL (outside helmet middleware):", process.env.API_BASE_URL);
 
-// Use Helmet to set secure HTTP headers
-app.use((req, res, next) => {
-    const nonce = uuidv4(); // Generate nonce per request
-    res.locals.nonce = nonce;
-    console.log("API_BASE_URL (inside helmet middleware):", process.env.API_BASE_URL);
-    helmet({
-        contentSecurityPolicy: {
-            directives: {
-                defaultSrc: ["'self'"],
-                scriptSrc: ["'self'", (req, res) => `'nonce-${res.locals.nonce}'`],
-                styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
-                imgSrc: ["'self'", "data:"],
-                connectSrc: ["'self'", process.env.API_BASE_URL, 'http://localhost:3000'],
-                fontSrc: ["'self'", 'https://fonts.gstatic.com'],
-                objectSrc: ["'none'"],
-                workerSrc: ["'self'", 'blob:'],
-            },
+// Use express_csp_header to set secure HTTP headers
+app.use(expressCspHeader({
+        directives: {
+            'default-src': ['\'self\''],
+            'style-src': ['\'self\'', '\'unsafe-inline\'', 'https://fonts.googleapis.com'],
+            'img-src': ['\'self\'', 'data:'],
+            'connect-src': ['\'self\'', process.env.API_BASE_URL, 'http://localhost:3000'], 
+            'font-src': ['\'self\'', 'https://fonts.gstatic.com'],
+            'object-src': ['\'none\''],
+            'worker-src': ['\'self\'', 'blob:'],
         },
-    }) (req, res, next); // Call helmet middleware as a function for each request
+    },
+));
+
+app.use('/api/spotify-callback', (req, res, next) => {
+    next(); // Bypass CSP route
 });
 
 app.use(session({
@@ -100,7 +97,7 @@ app.use(session({
     saveUninitialized: false,
     cookie: {
         httpOnly: true, 
-        secure: process.env.NODE_ENV === 'production'
+        secure: process.env.NODE_ENV === 'development'
     }
 }));
 
@@ -264,12 +261,12 @@ const refreshSpotifyToken = async (user) => {
 // Ensure valid Spotify token
 const ensureValidSpotifyToken = async (req, res, next) => {
     try {
-        const authHeader = req.headers.authorization;
-        if (!authHeader || !authHeader.startsWith('Bearer ')) {
-            return res.status(401).json({ error: 'No authorization token provided' });
-        }
+        const token = req.cookies.jwtToken; // Extract JWT from cookie
 
-        const token = authHeader.split(' ')[1];
+        if (!token) {
+            return res.status(401).json({error: 'No authorizaiotn token provided (cookie missing)' });
+        }
+        
         const decoded = jwt.verify(token, JWT_SECRET);
         const userId = decoded.userId;
 
@@ -288,7 +285,7 @@ const ensureValidSpotifyToken = async (req, res, next) => {
         next();
     }   catch (error) {
         console.error('Authentication failed:', error);
-        res.status(401).json({ error: 'Authentication failed' });
+        res.status(401).json({ error: 'Authentication failed (cookie invalid or expired' });
     }
 };
 
@@ -304,20 +301,26 @@ app.get('/auth/spotify', passport.authenticate('spotify', {
     showDialog: true 
   }));
 
-app.post('/api/spotify-callback',
-    passport.authenticate('spotify', { failureRedirect: '/login' }),
-    async function(req, res) {
+  app.post('/api/spotify-callback',
+  passport.authenticate('spotify'),
+  async function(req, res) {
+      try {
         // Generate JWT
         const payload = {
             userId: req.user._id,
-            jti: uuidv4() // Random ID
+            jti: uuidv4()
         };
         const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '24h' });
-
         console.log("JWT Token generated for user:", req.user.spotifyId);
-        // Redirect to frontend with JWT in URL fragment
+        console.log("FRONTEND_URL before redirect:", FRONTEND_URL);
+
         res.redirect(`${FRONTEND_URL}/#token=${token}`);
+
+    } catch (error) {
+        console.error("Error in /api/spotify-callback route:", error);
+        res.redirect(FRONTEND_URL);
     }
+  }
 );
 
 /*app.post('/api/spotify-callback', (req, res) => {
@@ -326,7 +329,7 @@ app.post('/api/spotify-callback',
 });*/
 
 // Fetch user listening data
-app.post('/api/listening-data', ensureValidSpotifyToken, async (req, res) => {
+app.get('/api/listening-data', ensureValidSpotifyToken, async (req, res) => {
     try {
         // Access user data from req.user
         if (!req.user || !req.user.accessToken) {
@@ -438,22 +441,21 @@ app.post('/api/generate-playlist', ensureValidSpotifyToken, async (req, res) => 
 app.post('/api/logout', async (req, res) => {
     console.log("--- /api/logout route hit ---");
     try {
-        const authHeader = req.headers.authorization;
-        console.log("Authorization header:", authHeader);
-        if (!authHeader || !authHeader.startsWith('Bearer ')) {
-            console.log("No or invalid authorization header.");
-            return res.status(400).json({ error: 'No authorization token provided' });
+        const token = req.cookies.jwtToken; // Get JWT from cookie
+        
+        if (token) {
+            const decoded = jwt.verify(token, JWT_SECRET);
+            console.log("JWT decoded successfully:", decoded);
+
+            // Blacklist the token
+            const blacklistedToken = new BlacklistedToken({ jti: decoded.jti });
+            await blacklistedToken.save();
+            console.log("Token blacklisted successfully.");
+        } else {
+            console.log("No JWT cookie found to blacklist (moght already be cleared).");
         }
-        const token = authHeader.split(' ')[1];
-        console.log("Extracted token:", token);
 
-        const decoded = jwt.verify(token, JWT_SECRET);
-        console.log("JWT decoded successfully:", decoded);
-
-        // Blacklist the token
-        const blacklistedToken = new BlacklistedToken({ jti: decoded.jti });
-        await blacklistedToken.save();
-        console.log("Token blacklisted successfully.");
+        res.clearCookie('jwtToken', { httpOnly: true, path: '/' }); // Clear cookie on backend side
 
         res.json({ message: 'Logged out successfully.' });
         console.log("Logout successful response sent.");

@@ -6,19 +6,21 @@ import reportWebVitals from './reportWebVitals';
 import { createBrowserRouter, RouterProvider } from 'react-router-dom';
 
 // Define routes using react-router-dom
-const router = createBrowserRouter([
+const router = createBrowserRouter(
+    [
+        {
+            path: "/*", // Catch-all path
+            element: <App />, // Use AppWrapper to render the App component
+        },
+    ],
     {
-        path: "/*", // Catch-all path
-        element: <App />, // Use AppWrapper to render the App component
-    },
-]);
-
-/* AppWrapper component to encapsulate the App component
-function AppWrapper() {
-    return (
-        <App />
-    )
-}*/
+        // Future flags for React Router v7
+        future: {
+            v7_startTransition: true,
+            v7_relativeSplatPath: true,
+        },
+    }
+);
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(

@@ -61,6 +61,32 @@ function App() {
 
     // Check and set the token from URL or local storage
     const checkAndSetToken = useCallback(() => {
+        const cookies = document.cookie;
+        let jwtToken = null;
+    
+        if (cookies) {
+            const jwtCookie = cookies.split(';').find(cookie => cookie.trim().startsWith('jwtToken='));
+            if (jwtCookie) {
+                jwtToken = jwtCookie.split('=')[1]; // Extract JWT value
+            }
+        }
+    
+        if (jwtToken) {
+            setAuthToken(jwtToken);
+            console.log('JWT Token extracted from cookies', jwtToken);
+            return true;
+        } else {
+            setAuthToken(null); // Clear auth token if no cookie
+            return false;
+        }
+    }, [setAuthToken]);
+
+    const handleAuthCheck = useCallback(() => {
+        const isAuthenticated = checkAndSetToken();
+        setIsAuthenticated(isAuthenticated);
+    }, [checkAndSetToken])
+
+    useEffect(() => { // After initial token exchange (when 'code' is in URL), check for jwtToken cookie.
         const params = new URLSearchParams(window.location.search);
         const code = params.get('code');
         if (code) {
@@ -70,13 +96,12 @@ function App() {
                 setError('');
                 try {
                     console.log("Exchanging code for token with backend...");
-                    const response = await axios.post(`${config.API_BASE_URL}/api/spotify-callback`, { code: authCode });
-                    const jwtToken = response.data.token; // Backend returns JWT
-                    console.log("JWT Token received from backend:", jwtToken);
-                    localStorage.setItem('jwtToken', jwtToken);
-                    setAuthToken(jwtToken);
-                    setIsAuthenticated(true);
+                    console.log("Sending authCode to backend:", authCode);
+                    const backendUrl = `http://localhost:8888/api/spotify-callback`; // Explicitly use HTTP
+                    await axios.post(backendUrl, { code: authCode }, { maxRedirects: 5 }); // Backend sets cookie
+                    console.log("Token exchnage complete, JWT should be in HttpOnly cookie.");
                     window.history.replaceState(null, null, '/');
+                    handleAuthCheck(); // Re-run auth check after exchange to pick up cookie and set auth status
                 } catch (error) {
                     console.error("Error exchanging code for token:", error);
                     setError('Failed to authenticate with Spotify.');
@@ -86,45 +111,16 @@ function App() {
             };
             exchangeCodeForToken(code);
             return false;
+        } else {
+            // Handled by initial auth check
         }
-
-        // Check local storage for a token
-        try {
-            const storedToken = localStorage.getItem('jwtToken');
-            if (storedToken) {
-                setAuthToken(storedToken)
-                console.log('JWT Token Extracted from local storage', storedToken);
-                return true;
-            }
-        } catch (error) {
-            console.error("Error accessing local storage: ", error)
-        }
-
-        if (window.location.hash) {
-            const url = new URL(window.location.href)
-            const token = url.hash.substring(1).split("token")[1];
-            if (token) {
-                console.log("JWT Token Extracted from URL", token);
-                setAuthToken(token);
-                window.history.replaceState(null, null, ' ');
-                localStorage.setItem('jwtToken', token);
-                return true
-            } else {
-                console.error("No token found in URL hash");
-            }
-        }
-        return false
-        }, [setAuthToken])
-
-    const handleAuthCheck = useCallback(() => {
-        const isAuthenticated = checkAndSetToken()
-        setIsAuthenticated(isAuthenticated)
-    }, [checkAndSetToken])
+        
+    }, [handleAuthCheck]); // useEffect to handle initial auth flow and cookies
 
     // Call checkAndSetToken on mount AND location change
     useEffect(() => {
-        handleAuthCheck()
-    }, [handleAuthCheck])
+        handleAuthCheck();
+    }, [handleAuthCheck]);
 
 
     // Fetch user listening data
@@ -133,7 +129,7 @@ function App() {
         setError('');
         try {
             console.log("Fetching top tracks");
-            const response = await axios.post(`${config.API_BASE_URL}/api/listening-data`);
+            const response = await axios.get(`${config.API_BASE_URL}/api/listening-data`);
             setTopTracks(response.data.items || []);
             console.log('Top tracks fetched successfully', response.data);
         } catch (err) {
@@ -244,14 +240,16 @@ function App() {
         try {
             console.log('Logging out');
             delete axios.defaults.headers.common['Authorization'];
-            console.log("Authorization token removed from defaults before logout request");
             await axios.post(`${config.API_BASE_URL}/api/logout`);
+
             setIsAuthenticated(false);
             setTopTracks([]);
             setSummary('');
             setAudio(null);
             setPlaylist(null);
-            localStorage.removeItem('jwtToken');
+
+            // Clear jwtToken cookie by setting it to expire immediately
+            document.cookie = 'jwtToken=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT;';
         } catch (error) {
             console.error('Logout failed:', error);
             if (error.response && error.response.data && error.response.data.error) {

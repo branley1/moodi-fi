@@ -1,3 +1,4 @@
+// frontend/src/NowPlaying.js
 import React from 'react';
 
 const NowPlayingWidget = ({ spotifyUserId }) => {
