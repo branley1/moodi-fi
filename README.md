@@ -19,39 +19,35 @@ Moodi-Fi is a web application that provides personalized insights into your Spot
 This project is built using a modern JavaScript stack and leverages powerful APIs:
 
 **Frontend:**
-
-*   **React:**  A JavaScript library for building user interfaces.
-*   **React Router:** For declarative routing in the React application.
-*   **Axios:**  For making HTTP requests to the backend API and Spotify Web API.
-*   **Create React App (or Vite):**  *(Specify which one you used if you remember)*  For project setup and development tooling.
-*   **JavaScript (ES6+):**  Modern JavaScript for frontend logic.
-*   **HTML/CSS:**  Standard web technologies for structure and styling.
+- React
+- React Router
+- Axios
+- Vite
+- JavaScript (E6+)
+- HTML/CSS
 
 **Backend:**
-
-*   **Node.js:**  JavaScript runtime environment for the server-side application.
-*   **Express.js:**  Fast, unopinionated, minimalist web framework for Node.js.
-*   **Passport.js:** Authentication middleware for Node.js (specifically `passport-spotify` strategy).
-*   **JSON Web Tokens (JWT):** For secure user authentication and authorization.
-*   **`express-csp-header`:** For setting Content Security Policy (CSP) headers for enhanced security.
-*   **`cookie-parser`:** Middleware to parse cookies in requests.
-*   **`cors`:** Middleware to enable Cross-Origin Resource Sharing for API access from the frontend.
-*   **`dotenv`:** For loading environment variables from `.env` files.
-*   **`mongoose`:**  Mongoose ODM for MongoDB object modeling and interaction.
-*   **MongoDB:**  NoSQL database to store user data and summaries.
-*   **Google Generative AI (Gemini Models):**  Leveraging Google's AI models for text summarization and (future) audio generation.
-*   **`node-cron`:**  For scheduling cleanup tasks (e.g., expired tokens).
-*   **`winston`:**  For logging server-side events and errors.
+- Node.js
+- Express.js
+- Passport.js (`passport-spotify`)
+- JSON Web TOkens (JWT)
+- ExpressCSPHeader (`express-csp-header`)
+- CORS (`cors`)
+- MongoDB (`mongoose`)
+- Google Gemini models
+- `node-cron`
+- `winston`
+- `cookie-parser`
+- `dotenv`
 
 **APIs:**
-
-*   **Spotify Web API:**  For fetching user listening data, creating playlists, and user profile information.
-*   **Google Generative AI API (Gemini 2.0 Flash Exp):** For generating summaries from listening data.
-*   **(Future/Optional) Text-to-Speech API (e.g., Google Cloud Text-to-Speech, OpenAI)** For audio summary generation.
+- Spotify Web API
+- Google Generative AI API (Gemini 2.0 Flash Exp)
+- (Future): Text-to-Speech API (considering: Gemini 2.0 Flash Exp or OpenAI APIs)
 
 ## Setup Instructions (Local Development)
 
-Follow these steps to set up Moodi-Fi on your local machine for development:
+Setting up Moodi-Fi locally for development:
 
 **Prerequisites:**
 
